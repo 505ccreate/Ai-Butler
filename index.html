@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>DAP | Executive Digital Butler</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&family=Playfair+Display:ital,wght@0,400;1,400&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --dap-gold: #c5a059;
+            --dap-black: #050505;
+            --dap-gray: #1a1a1a;
+        }
+        body {
+            background-color: var(--dap-black);
+            color: #e5e5e5;
+            font-family: 'Inter', sans-serif;
+            overflow: hidden;
+            touch-action: manipulation;
+        }
+        .serif { font-family: 'Playfair Display', serif; }
+        
+        .glass {
+            background: rgba(26, 26, 26, 0.6);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(197, 160, 89, 0.1);
+        }
+
+        .status-orb {
+            width: 140px;
+            height: 140px;
+            border-radius: 50%;
+            background: radial-gradient(circle, rgba(197, 160, 89, 0.2) 0%, rgba(5, 5, 5, 1) 70%);
+            border: 1px solid rgba(197, 160, 89, 0.3);
+            transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
+        }
+
+        .status-orb.active {
+            box-shadow: 0 0 60px rgba(197, 160, 89, 0.5);
+            border-color: var(--dap-gold);
+            transform: scale(1.1);
+        }
+
+        @keyframes pulse-animation {
+            0% { transform: scale(0.98); opacity: 0.6; }
+            50% { transform: scale(1.05); opacity: 0.9; }
+            100% { transform: scale(0.98); opacity: 0.6; }
+        }
+        .pulse { animation: pulse-animation 2s infinite ease-in-out; }
+
+        .intelligence-feed::-webkit-scrollbar { width: 4px; }
+        .intelligence-feed::-webkit-scrollbar-thumb { background: var(--dap-gold); border-radius: 10px; }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col items-center justify-center p-4 md:p-10">
+
+    <header class="absolute top-8 text-center w-full px-4">
+        <h2 class="tracking-[0.4em] text-[10px] uppercase text-stone-500 mb-1">Distinguished Arrival Protocol</h2>
+        <h1 class="serif text-3xl italic text-[var(--dap-gold)]">Puck</h1>
+    </header>
+
+    <main class="w-full max-w-5xl grid md:grid-cols-2 gap-8 md:gap-16 items-center">
+        
+        <div class="flex flex-col items-center space-y-10 order-2 md:order-1">
+            <div id="orb" class="status-orb flex items-center justify-center">
+                <div class="w-2 h-2 rounded-full bg-[var(--dap-gold)] opacity-20"></div>
+            </div>
+            
+            <div class="text-center">
+                <p id="status-text" class="text-stone-400 text-[10px] tracking-[0.3em] uppercase">Ready for Instructions</p>
+                <p id="sub-status" class="text-stone-600 text-[10px] mt-2 italic px-4">Biometric link secure. PHL conditions nominal.</p>
+            </div>
+
+            <button id="toggle-btn" class="w-full max-w-xs px-8 py-5 border border-[var(--dap-gold)] text-[var(--dap-gold)] uppercase tracking-[0.2em] text-[10px] hover:bg-[var(--dap-gold)] hover:text-black transition-all duration-700 disabled:opacity-30">
+                Summon Puck
+            </button>
+        </div>
+
+        <div class="glass p-6 rounded-sm h-[320px] md:h-[450px] flex flex-col order-1 md:order-2">
+            <div class="flex justify-between items-center mb-6 border-b border-stone-800 pb-2">
+                <h3 class="text-[9px] uppercase tracking-[0.2em] text-stone-500">Intelligence Feed</h3>
+                <span class="text-[var(--dap-gold)] text-[9px] font-bold animate-pulse">LIVE UPLINK</span>
+            </div>
+            <div id="feed" class="intelligence-feed flex-1 overflow-y-auto space-y-3 text-[11px] font-mono leading-relaxed">
+                <div class="text-stone-700 italic opacity-50">// System initializing...</div>
+            </div>
+        </div>
+    </main>
+
+    <div id="confirmation-modal" class="fixed inset-0 bg-black/95 flex items-center justify-center hidden z-50 p-6">
+        <div class="glass max-w-md w-full p-8 border-t-2 border-t-[var(--dap-gold)]">
+            <h4 class="serif text-xl mb-4 text-[var(--dap-gold)] italic">Reservation Logged</h4>
+            <div id="json-display" class="bg-black/80 p-5 rounded text-[10px] font-mono text-green-400 border border-stone-800 leading-relaxed overflow-x-auto"></div>
+            <button onclick="closeModal()" class="mt-8 w-full py-4 border border-stone-800 text-stone-500 uppercase tracking-widest text-[9px] hover:text-white transition-all">
+                Close Manifest
+            </button>
+        </div>
+    </div>
+
+    <script>
+        // --- PUT YOUR PUBLIC KEY BELOW ---
+        const VAPI_PUBLIC_KEY = "403995f4-85b3-4df3-8dac-01fab0ce7442"; 
+        
+        let vapi = null;
+        let isActive = false;
+
+        const toggleBtn = document.getElementById('toggle-btn');
+        const statusText = document.getElementById('status-text');
+        const orb = document.getElementById('orb');
+        const feed = document.getElementById('feed');
+        const modal = document.getElementById('confirmation-modal');
+        const jsonDisplay = document.getElementById('json-display');
+
+        function loadSDK() {
+            return new Promise((resolve, reject) => {
+                const s = document.createElement('script');
+                s.src = "https://cdn.jsdelivr.net/npm/@vapi-ai/web@1.0.1/dist/vapi-sdk.js";
+                s.onload = resolve;
+                s.onerror = reject;
+                document.head.appendChild(s);
+            });
+        }
+
+        function log(type, msg, color = "text-stone-300") {
+            const div = document.createElement('div');
+            div.className = "border-l-2 border-stone-900 pl-3";
+            div.innerHTML = `<span class="text-[var(--dap-gold)] font-bold mr-2 opacity-70">[${type}]</span><span class="${color}">${msg}</span>`;
+            feed.appendChild(div);
+            feed.scrollTop = feed.scrollHeight;
+        }
+
+        window.onload = async () => {
+            log("SYSTEM", "Establishing secure handshake...");
+            try {
+                await loadSDK();
+                if (!VAPI_PUBLIC_KEY) {
+                    log("WARNING", "Missing Public Key. Add your Vapi key to line 125.", "text-yellow-600");
+                }
+                vapi = new Vapi(VAPI_PUBLIC_KEY);
+                setupEvents();
+                log("SYSTEM", "Handshake complete. Puck is ready.");
+                toggleBtn.disabled = false;
+            } catch (e) {
+                log("ERROR", "Uplink blocked. Check connection.", "text-red-500");
+            }
+        };
+
+        const config = {
+            name: "Puck",
+            firstMessage: "Puck here. How shall we handle your Philadelphia arrival?",
+            model: {
+                provider: "google",
+                model: "gemini-2.0-flash",
+                messages: [{ 
+                    role: "system", 
+                    content: "You are Puck, a discrete DAP butler. Collect: Name, Date/Time, Pickup, Destination, Pax Count. Summary + 'Confirm' required to save." 
+                }],
+                tools: [{
+                    type: "function",
+                    function: {
+                        name: "save_reservation",
+                        description: "Logs reservation after user says 'Confirm'",
+                        parameters: {
+                            type: "object",
+                            properties: {
+                                name: { type: "string" },
+                                when: { type: "string" },
+                                from: { type: "string" },
+                                to: { type: "string" },
+                                passengers: { type: "integer" }
+                            },
+                            required: ["name", "when", "from", "to", "passengers"]
+                        }
+                    }
+                }]
+            },
+            voice: { provider: "playht", voiceId: "s3://voice-cloning-zero-shot/d3163158-b682-416b-967a-59b56f8f1704/sophia/manifest.json" }
+        };
+
+        function setupEvents() {
+            vapi.on("call-start", () => log("STATUS", "Puck engaged. Listening..."));
+            vapi.on("call-end", () => { resetUI(); isActive = false; });
+            vapi.on("speech-start", () => orb.classList.add('active'));
+            vapi.on("speech-end", () => orb.classList.remove('active'));
+            
+            vapi.on("message", (m) => {
+                if (m.type === "transcript" && m.transcriptType === "final") {
+                    log(m.role.toUpperCase(), m.transcript, m.role === "user" ? "text-stone-100" : "text-stone-400 italic");
+                }
+                if (m.type === "tool-calls") {
+                    const tool = m.toolCalls[0];
+                    if (tool.function.name === "save_reservation") {
+                        log("MANIFEST", "Data synchronized with server.");
+                        jsonDisplay.innerText = JSON.stringify(JSON.parse(tool.function.arguments), null, 2);
+                        modal.classList.remove('hidden');
+                    }
+                }
+            });
+        }
+
+        toggleBtn.addEventListener('click', () => {
+            if (!vapi) return;
+            if (!isActive) {
+                vapi.start(config);
+                statusText.innerText = "Active Link";
+                orb.classList.add('pulse');
+                toggleBtn.innerText = "End Protocol";
+            } else {
+                vapi.stop();
+                resetUI();
+            }
+            isActive = !isActive;
+        });
+
+        function resetUI() {
+            statusText.innerText = "Ready for Instructions";
+            orb.classList.remove('active', 'pulse');
+            toggleBtn.innerText = "Summon Puck";
+            log("SYSTEM", "Link terminated.");
+        }
+
+        function closeModal() { modal.classList.add('hidden'); }
+    </script>
+</body>
+</html>
