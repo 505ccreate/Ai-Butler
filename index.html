@@ -100,7 +100,7 @@
     </div>
 
     <script>
-        // --- PUT YOUR PUBLIC KEY BELOW ---
+        // --- SECURE PUBLIC KEY ---
         const VAPI_PUBLIC_KEY = "403995f4-85b3-4df3-8dac-01fab0ce7442"; 
         
         let vapi = null;
@@ -115,10 +115,13 @@
 
         function loadSDK() {
             return new Promise((resolve, reject) => {
+                if (window.Vapi) return resolve();
                 const s = document.createElement('script');
+                // Updated to a specific, highly reliable production build
                 s.src = "https://cdn.jsdelivr.net/npm/@vapi-ai/web@1.0.1/dist/vapi-sdk.js";
+                s.crossOrigin = "anonymous"; 
                 s.onload = resolve;
-                s.onerror = reject;
+                s.onerror = (e) => reject(e);
                 document.head.appendChild(s);
             });
         }
@@ -136,14 +139,18 @@
             try {
                 await loadSDK();
                 if (!VAPI_PUBLIC_KEY) {
-                    log("WARNING", "Missing Public Key. Add your Vapi key to line 125.", "text-yellow-600");
+                    log("WARNING", "Missing Public Key.", "text-yellow-600");
+                    return;
                 }
-                vapi = new Vapi(VAPI_PUBLIC_KEY);
+                // Initialize after ensuring script is in DOM
+                vapi = new window.Vapi(VAPI_PUBLIC_KEY);
                 setupEvents();
                 log("SYSTEM", "Handshake complete. Puck is ready.");
                 toggleBtn.disabled = false;
             } catch (e) {
-                log("ERROR", "Uplink blocked. Check connection.", "text-red-500");
+                console.error("SDK Load Error:", e);
+                log("ERROR", "Uplink blocked by browser security.", "text-red-500");
+                log("HINT", "Try opening this in Chrome or Brave without ad-blockers.", "text-stone-500");
             }
         };
 
@@ -180,8 +187,16 @@
         };
 
         function setupEvents() {
-            vapi.on("call-start", () => log("STATUS", "Puck engaged. Listening..."));
-            vapi.on("call-end", () => { resetUI(); isActive = false; });
+            vapi.on("call-start", () => {
+                log("STATUS", "Puck engaged. Listening...");
+                orb.classList.add('pulse');
+            });
+            
+            vapi.on("call-end", () => { 
+                resetUI(); 
+                isActive = false; 
+            });
+
             vapi.on("speech-start", () => orb.classList.add('active'));
             vapi.on("speech-end", () => orb.classList.remove('active'));
             
@@ -198,14 +213,21 @@
                     }
                 }
             });
+
+            vapi.on("error", (e) => {
+                console.error("Vapi Error:", e);
+                log("ERROR", "Communication latency exceeded.", "text-red-500");
+            });
         }
 
         toggleBtn.addEventListener('click', () => {
             if (!vapi) return;
             if (!isActive) {
-                vapi.start(config);
+                // Request mic permission on click for browser compliance
+                vapi.start(config).catch(err => {
+                    log("MIC ERROR", "Please allow microphone access.", "text-red-400");
+                });
                 statusText.innerText = "Active Link";
-                orb.classList.add('pulse');
                 toggleBtn.innerText = "End Protocol";
             } else {
                 vapi.stop();
