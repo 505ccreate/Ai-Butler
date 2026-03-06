@@ -5,8 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>DAP | Executive Digital Butler</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- Primary SDK Load -->
-    <script src="https://cdn.jsdelivr.net/npm/@vapi-ai/web@1.0.1/dist/vapi-sdk.js" crossorigin="anonymous" defer></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&family=Playfair+Display:ital,wght@0,400;1,400&display=swap" rel="stylesheet">
     <style>
         :root {
@@ -54,15 +52,6 @@
 
         .intelligence-feed::-webkit-scrollbar { width: 4px; }
         .intelligence-feed::-webkit-scrollbar-thumb { background: var(--dap-gold); border-radius: 10px; }
-        
-        #handshake-btn {
-            animation: bounce 2s infinite;
-        }
-        @keyframes bounce {
-            0%, 20%, 50%, 80%, 100% {transform: translateY(0);}
-            40% {transform: translateY(-5px);}
-            60% {transform: translateY(-3px);}
-        }
     </style>
 </head>
 <body class="min-h-screen flex flex-col items-center justify-center p-4 md:p-10">
@@ -80,28 +69,26 @@
             </div>
             
             <div class="text-center">
-                <p id="status-text" class="text-stone-400 text-[10px] tracking-[0.3em] uppercase">Ready for Instructions</p>
+                <p id="status-text" class="text-stone-400 text-[10px] tracking-[0.3em] uppercase">System Standby</p>
                 <p id="sub-status" class="text-stone-600 text-[10px] mt-2 italic px-4">Biometric link secure. PHL conditions nominal.</p>
             </div>
 
-            <div class="w-full max-w-xs space-y-4">
-                <button id="toggle-btn" class="w-full px-8 py-5 border border-[var(--dap-gold)] text-[var(--dap-gold)] uppercase tracking-[0.2em] text-[10px] hover:bg-[var(--dap-gold)] hover:text-black transition-all duration-700 disabled:opacity-30" disabled>
-                    Uplink Initializing
-                </button>
-                <button id="handshake-btn" class="hidden w-full px-4 py-2 bg-stone-900 border border-stone-700 text-stone-500 uppercase tracking-widest text-[8px] hover:text-white transition-all">
-                    Authorize Handshake
-                </button>
-            </div>
+            <button id="toggle-btn" class="w-full max-w-xs px-8 py-5 border border-[var(--dap-gold)] text-[var(--dap-gold)] uppercase tracking-[0.2em] text-[10px] hover:bg-[var(--dap-gold)] hover:text-black transition-all duration-700 disabled:opacity-30" disabled>
+                Initializing...
+            </button>
         </div>
 
         <div class="glass p-6 rounded-sm h-[320px] md:h-[450px] flex flex-col order-1 md:order-2">
             <div class="flex justify-between items-center mb-6 border-b border-stone-800 pb-2">
                 <h3 class="text-[9px] uppercase tracking-[0.2em] text-stone-500">Intelligence Feed</h3>
-                <span class="text-[var(--dap-gold)] text-[9px] font-bold animate-pulse">LIVE UPLINK</span>
+                <span id="uplink-status" class="text-red-500 text-[9px] font-bold">OFFLINE</span>
             </div>
             <div id="feed" class="intelligence-feed flex-1 overflow-y-auto space-y-3 text-[11px] font-mono leading-relaxed">
-                <div class="text-stone-700 italic opacity-50">// System initializing...</div>
+                <!-- System logs appear here -->
             </div>
+            <button id="force-handshake" class="hidden mt-4 w-full py-2 bg-[var(--dap-gold)] text-black text-[9px] font-bold uppercase tracking-widest hover:bg-white transition-all">
+                Force Security Bypass
+            </button>
         </div>
     </main>
 
@@ -123,8 +110,9 @@
         let isActive = false;
 
         const toggleBtn = document.getElementById('toggle-btn');
-        const handshakeBtn = document.getElementById('handshake-btn');
+        const forceBtn = document.getElementById('force-handshake');
         const statusText = document.getElementById('status-text');
+        const uplinkLabel = document.getElementById('uplink-status');
         const orb = document.getElementById('orb');
         const feed = document.getElementById('feed');
         const modal = document.getElementById('confirmation-modal');
@@ -132,55 +120,59 @@
 
         function log(type, msg, color = "text-stone-300") {
             const div = document.createElement('div');
-            div.className = "border-l-2 border-stone-900 pl-3";
+            div.className = "border-l-2 border-stone-900 pl-3 transition-all duration-500";
             div.innerHTML = `<span class="text-[var(--dap-gold)] font-bold mr-2 opacity-70">[${type}]</span><span class="${color}">${msg}</span>`;
             feed.appendChild(div);
             feed.scrollTop = feed.scrollHeight;
         }
 
         /**
-         * Robust Initialization
+         * The Handshake Logic
          */
-        async function initButler() {
-            log("SYSTEM", "Executing biometric handshake...");
+        function attemptInitialization() {
+            log("SYSTEM", "Requesting SDK handshake...");
             
-            try {
-                // Wait for SDK to settle (handles asynchronous script loading)
-                let attempts = 0;
-                while (!window.Vapi && attempts < 50) {
-                    await new Promise(r => setTimeout(r, 100));
-                    attempts++;
-                }
-
-                if (window.Vapi) {
+            if (window.Vapi) {
+                try {
                     vapi = new window.Vapi(VAPI_PUBLIC_KEY);
                     setupEvents();
-                    log("SYSTEM", "Handshake accepted. Puck is ready.");
+                    log("SUCCESS", "Handshake accepted. Puck is live.", "text-green-500");
+                    uplinkLabel.innerText = "LIVE UPLINK";
+                    uplinkLabel.classList.remove('text-red-500');
+                    uplinkLabel.classList.add('text-[var(--dap-gold)]', 'animate-pulse');
                     toggleBtn.innerText = "Summon Puck";
                     toggleBtn.disabled = false;
-                    handshakeBtn.classList.add('hidden');
-                } else {
-                    throw new Error("SDK timeout.");
+                    forceBtn.classList.add('hidden');
+                } catch (e) {
+                    log("ERROR", "Initialization failed internally.", "text-red-500");
                 }
-            } catch (e) {
-                console.error(e);
-                log("ERROR", "Uplink blocked by browser security.", "text-red-500");
-                log("HINT", "Tap the 'Authorize Handshake' button below.", "text-stone-500 uppercase");
-                handshakeBtn.classList.remove('hidden');
+            } else {
+                log("SECURITY", "Uplink blocked by browser policy.", "text-red-500");
+                log("HINT", "Tap 'Force Security Bypass' to override.", "text-stone-500 italic");
+                forceBtn.classList.remove('hidden');
                 toggleBtn.innerText = "Uplink Blocked";
             }
         }
 
-        // Handle manual override for tablet security blocks
-        handshakeBtn.onclick = () => {
-            log("SYSTEM", "Retrying manual handshake...");
+        /**
+         * Forced Injection for Tablet/Mobile
+         */
+        forceBtn.onclick = () => {
+            log("ACTION", "Forcing biometric override...");
             const s = document.createElement('script');
-            s.src = "https://unpkg.com/@vapi-ai/web@1.0.1/dist/vapi-sdk.js";
-            s.onload = initButler;
-            document.head.appendChild(s);
+            s.src = "https://cdn.jsdelivr.net/npm/@vapi-ai/web@1.0.1/dist/vapi-sdk.js";
+            s.crossOrigin = "anonymous";
+            s.onload = () => {
+                log("SYSTEM", "Bypass successful. Re-verifying...");
+                attemptInitialization();
+            };
+            s.onerror = () => {
+                log("CRITICAL", "Handshake failed. Ad-blocker detected.", "text-red-600");
+            };
+            document.body.appendChild(s);
         };
 
-        window.onload = initButler;
+        window.onload = attemptInitialization;
 
         const config = {
             name: "Puck",
@@ -216,18 +208,12 @@
 
         function setupEvents() {
             vapi.on("call-start", () => {
-                log("STATUS", "Puck engaged. Listening...");
+                log("STATUS", "Protocol active. Puck listening.");
                 orb.classList.add('pulse');
             });
-            
-            vapi.on("call-end", () => { 
-                resetUI(); 
-                isActive = false; 
-            });
-
+            vapi.on("call-end", () => { resetUI(); isActive = false; });
             vapi.on("speech-start", () => orb.classList.add('active'));
             vapi.on("speech-end", () => orb.classList.remove('active'));
-            
             vapi.on("message", (m) => {
                 if (m.type === "transcript" && m.transcriptType === "final") {
                     log(m.role.toUpperCase(), m.transcript, m.role === "user" ? "text-stone-100" : "text-stone-400 italic");
@@ -235,26 +221,23 @@
                 if (m.type === "tool-calls") {
                     const tool = m.toolCalls[0];
                     if (tool.function.name === "save_reservation") {
-                        log("MANIFEST", "Data synchronized with server.");
+                        log("MANIFEST", "Synchronizing manifest with secure server...");
                         jsonDisplay.innerText = JSON.stringify(JSON.parse(tool.function.arguments), null, 2);
                         modal.classList.remove('hidden');
                     }
                 }
             });
-
             vapi.on("error", (e) => {
                 console.error(e);
-                log("ERROR", "Communication uplink failure.", "text-red-500");
+                log("ERROR", "Uplink signal lost.", "text-red-500");
             });
         }
 
         toggleBtn.addEventListener('click', () => {
             if (!vapi) return;
             if (!isActive) {
-                vapi.start(config).catch(err => {
-                    log("MIC ERROR", "Permission denied.", "text-red-400");
-                });
-                statusText.innerText = "Active Link";
+                vapi.start(config).catch(() => log("MIC", "Audio permissions required.", "text-red-400"));
+                statusText.innerText = "Active Protocol";
                 toggleBtn.innerText = "End Protocol";
             } else {
                 vapi.stop();
@@ -264,7 +247,7 @@
         });
 
         function resetUI() {
-            statusText.innerText = "Ready for Instructions";
+            statusText.innerText = "System Standby";
             orb.classList.remove('active', 'pulse');
             toggleBtn.innerText = "Summon Puck";
             log("SYSTEM", "Link terminated.");
