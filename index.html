@@ -3,107 +3,214 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>DAP | Executive Digital Butler (Neural Native)</title>
+    <title>DAP | Alfred Neural Butler</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&family=Playfair+Display:ital,wght@0,400;1,400&display=swap" rel="stylesheet">
     <style>
-        :root { --dap-gold: #c5a059; --dap-black: #050505; }
-        body { background-color: var(--dap-black); color: #e5e5e5; font-family: 'Inter', sans-serif; overflow: hidden; touch-action: manipulation; }
+        :root { 
+            --dap-blue-dark: #020617;
+            --dap-blue-mid: #0f172a;
+            --dap-accent: #38bdf8; /* Sky Blue Accent */
+            --dap-glow: rgba(56, 189, 248, 0.4);
+        }
+        
+        body { 
+            background: var(--dap-blue-dark);
+            color: #f0f9ff;
+            font-family: 'Inter', sans-serif;
+            overflow: hidden;
+            touch-action: manipulation;
+            position: relative;
+        }
+
+        /* Drifting Orbs Background */
+        .orb-container {
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            z-index: -1;
+            overflow: hidden;
+            background: radial-gradient(circle at 50% 50%, #0f172a 0%, #020617 100%);
+        }
+
+        .orb {
+            position: absolute;
+            border-radius: 50%;
+            filter: blur(80px);
+            opacity: 0.4;
+            mix-blend-mode: screen;
+            animation: drift 25s infinite alternate ease-in-out;
+        }
+
+        .orb-1 { width: 400px; height: 400px; background: #1e40af; top: -10%; left: -10%; animation-duration: 30s; }
+        .orb-2 { width: 500px; height: 500px; background: #0369a1; bottom: -15%; right: -5%; animation-duration: 35s; animation-delay: -5s; }
+        .orb-3 { width: 300px; height: 300px; background: #334155; top: 40%; left: 30%; animation-duration: 40s; animation-delay: -10s; }
+
+        @keyframes drift {
+            0% { transform: translate(0, 0) scale(1); }
+            33% { transform: translate(100px, 50px) scale(1.1); }
+            66% { transform: translate(-50px, 120px) scale(0.9); }
+            100% { transform: translate(20px, -40px) scale(1); }
+        }
+
         .serif { font-family: 'Playfair Display', serif; }
-        .glass { background: rgba(26, 26, 26, 0.6); backdrop-filter: blur(10px); border: 1px solid rgba(197, 160, 89, 0.1); }
-        .status-orb { width: 140px; height: 140px; border-radius: 50%; background: radial-gradient(circle, rgba(197, 160, 89, 0.2) 0%, rgba(5, 5, 5, 1) 70%); border: 1px solid rgba(197, 160, 89, 0.3); transition: all 0.5s; position: relative; display: flex; align-items: center; justify-content: center; }
-        .status-orb.active { box-shadow: 0 0 60px rgba(197, 160, 89, 0.5); border-color: var(--dap-gold); transform: scale(1.1); }
+        .glass { 
+            background: rgba(15, 23, 42, 0.7); 
+            backdrop-filter: blur(12px); 
+            border: 1px solid rgba(56, 189, 248, 0.1); 
+        }
         
-        /* Audio Wave Visualizer */
-        .wave-container { display: flex; align-items: center; gap: 3px; height: 30px; }
-        .wave-bar { width: 3px; height: 5px; background: var(--dap-gold); border-radius: 10px; transition: height 0.1s ease; }
-        
-        @keyframes pulse-animation { 0% { transform: scale(0.98); opacity: 0.6; } 50% { transform: scale(1.05); opacity: 0.9; } 100% { transform: scale(0.98); opacity: 0.6; } }
-        .pulse { animation: pulse-animation 2s infinite ease-in-out; }
-        
+        /* Central Interactive Zone */
+        .status-container {
+            width: 280px; height: 280px;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            position: relative;
+        }
+
+        /* Frequency Band Visualizer */
+        .freq-band {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 4px;
+            height: 60px;
+            width: 200px;
+        }
+
+        .band-bar {
+            width: 4px;
+            height: 4px;
+            background: var(--dap-accent);
+            border-radius: 2px;
+            box-shadow: 0 0 10px var(--dap-glow);
+            transition: height 0.15s ease-out, background 0.3s;
+        }
+
+        .band-bar.active { background: #fff; box-shadow: 0 0 20px #fff; }
+
         .intelligence-feed::-webkit-scrollbar { width: 4px; }
-        .intelligence-feed::-webkit-scrollbar-thumb { background: var(--dap-gold); border-radius: 10px; }
+        .intelligence-feed::-webkit-scrollbar-thumb { background: var(--dap-accent); border-radius: 10px; }
+
+        .stt-preview {
+            margin-top: 1rem;
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.15em;
+            color: var(--dap-accent);
+            opacity: 0.8;
+            font-family: monospace;
+            text-align: center;
+            min-height: 1.5em;
+        }
+
+        /* Modernized Input */
+        .hybrid-input {
+            background: rgba(2, 6, 23, 0.8);
+            border: 1px solid rgba(56, 189, 248, 0.2);
+            transition: border-color 0.3s, box-shadow 0.3s;
+        }
+        .hybrid-input:focus-within {
+            border-color: var(--dap-accent);
+            box-shadow: 0 0 15px rgba(56, 189, 248, 0.15);
+        }
     </style>
 </head>
 <body class="min-h-screen flex flex-col items-center justify-center p-4">
 
-    <header class="absolute top-8 text-center w-full px-4 border-b border-stone-900 pb-4">
-        <h2 class="tracking-[0.4em] text-[10px] uppercase text-stone-500 mb-1">Distinguished Arrival Protocol</h2>
-        <h1 class="serif text-3xl italic text-[var(--dap-gold)]">Puck</h1>
+    <!-- Background Layer -->
+    <div class="orb-container">
+        <div class="orb orb-1"></div>
+        <div class="orb orb-2"></div>
+        <div class="orb orb-3"></div>
+    </div>
+
+    <header class="absolute top-8 text-center w-full px-4">
+        <h2 class="tracking-[0.6em] text-[10px] uppercase text-sky-700 font-bold mb-1">Distinguished Arrival Protocol</h2>
+        <h1 class="serif text-4xl italic text-sky-100">Alfred</h1>
     </header>
 
-    <main class="w-full max-w-5xl grid md:grid-cols-2 gap-8 items-center mt-12">
-        <div class="flex flex-col items-center space-y-10 order-2 md:order-1">
-            <div id="orb" class="status-orb">
-                <div id="wave-viz" class="wave-container hidden">
-                    <div class="wave-bar"></div><div class="wave-bar"></div><div class="wave-bar"></div><div class="wave-bar"></div><div class="wave-bar"></div>
+    <main class="w-full max-w-6xl grid md:grid-cols-2 gap-12 items-center z-10">
+        <!-- Left: Interaction Core -->
+        <div class="flex flex-col items-center space-y-8 order-2 md:order-1">
+            <div class="status-container glass rounded-full">
+                <div id="visualizer" class="freq-band">
+                    <div class="band-bar"></div><div class="band-bar"></div><div class="band-bar"></div>
+                    <div class="band-bar"></div><div class="band-bar"></div><div class="band-bar"></div>
+                    <div class="band-bar"></div><div class="band-bar"></div><div class="band-bar"></div>
                 </div>
+                <div id="stt-preview" class="stt-preview"></div>
             </div>
             
-            <div class="text-center">
-                <p id="status-text" class="text-stone-400 text-[10px] tracking-[0.3em] uppercase">Ready for Instructions</p>
-                <p id="sub-status" class="text-stone-600 text-[10px] mt-2 italic px-4">Neural link initialized.</p>
+            <div class="w-full max-w-sm space-y-4">
+                <div class="hybrid-input flex items-center p-1 rounded-full px-4">
+                    <input type="text" id="chat-input" placeholder="Coordinate with Alfred..." 
+                           class="flex-1 bg-transparent py-3 text-sm text-sky-50 placeholder:text-sky-900 focus:outline-none">
+                    <button id="send-btn" class="p-2 text-sky-400 hover:text-white transition-colors">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+                    </button>
+                </div>
+
+                <button id="mic-toggle" class="w-full py-4 rounded-full border border-sky-900 text-sky-500 uppercase tracking-widest text-[10px] hover:bg-sky-500/10 hover:border-sky-400 transition-all flex items-center justify-center gap-3">
+                    <svg id="mic-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>
+                    <span id="mic-text">Initialize Voice</span>
+                </button>
             </div>
-            <button id="toggle-btn" class="w-full max-w-xs px-8 py-5 border border-[var(--dap-gold)] text-[var(--dap-gold)] uppercase tracking-[0.2em] text-[10px] hover:bg-[var(--dap-gold)] hover:text-black transition-all duration-700">
-                Summon Puck
-            </button>
         </div>
 
-        <div class="glass p-6 rounded-sm h-[320px] md:h-[450px] flex flex-col order-1 md:order-2">
-            <div class="flex justify-between items-center mb-6 border-b border-stone-800 pb-2">
-                <h3 class="text-[9px] uppercase tracking-[0.2em] text-stone-500">Intelligence Feed</h3>
-                <span id="uplink-status" class="text-[var(--dap-gold)] text-[9px] font-bold animate-pulse">ELITE UPLINK</span>
+        <!-- Right: Intelligence Feed -->
+        <div class="glass p-8 rounded-xl h-[500px] flex flex-col order-1 md:order-2">
+            <div class="flex justify-between items-center mb-6 border-b border-sky-900/30 pb-4">
+                <h3 class="text-[10px] uppercase tracking-[0.4em] text-sky-600 font-bold">Neural Stream</h3>
+                <span id="uplink-status" class="text-sky-400 text-[10px] font-bold tracking-tighter opacity-50">STDBY</span>
             </div>
-            <div id="feed" class="intelligence-feed flex-1 overflow-y-auto space-y-3 text-[11px] font-mono leading-relaxed">
-                <div class="text-stone-700 italic opacity-50">// Neural buffers primed...</div>
+            <div id="feed" class="intelligence-feed flex-1 overflow-y-auto space-y-4 text-[12px] font-mono leading-relaxed text-sky-200">
+                <div class="opacity-30 italic font-light">// Alfred Neural buffers synchronized.</div>
             </div>
         </div>
     </main>
 
-    <div id="confirmation-modal" class="fixed inset-0 bg-black/95 flex items-center justify-center hidden z-50 p-6">
-        <div class="glass max-w-md w-full p-8 border-t-2 border-t-[var(--dap-gold)]">
-            <h4 class="serif text-xl mb-4 text-[var(--dap-gold)] italic">Reservation Logged</h4>
-            <div id="json-display" class="bg-black/80 p-5 rounded text-[10px] font-mono text-green-400 border border-stone-800 leading-relaxed overflow-x-auto"></div>
-            <button onclick="closeModal()" class="mt-8 w-full py-4 border border-stone-800 text-stone-500 uppercase tracking-widest text-[9px] hover:text-white transition-all">
-                Close Manifest
+    <!-- Modal -->
+    <div id="confirmation-modal" class="fixed inset-0 bg-slate-950/90 backdrop-blur-md flex items-center justify-center hidden z-50 p-6">
+        <div class="glass max-w-md w-full p-10 rounded-2xl border-t-4 border-t-sky-500 shadow-2xl">
+            <h4 class="serif text-3xl mb-6 text-sky-100 italic">Flight Manifest</h4>
+            <div id="json-display" class="bg-slate-900/50 p-6 rounded-lg text-[11px] font-mono text-sky-400 border border-sky-900/50 leading-relaxed overflow-x-auto"></div>
+            <button onclick="closeModal()" class="mt-8 w-full py-4 bg-sky-600 text-white rounded-lg uppercase tracking-widest text-[10px] font-bold hover:bg-sky-500 transition-all">
+                Finalize Arrival
             </button>
         </div>
     </div>
 
     <script>
-        // --- ELITE NATIVE ARCHITECTURE (Elijah's "Smooth" Update) ---
-        const apiKey = ""; // Gemini API Key
-        let isListening = false;
-        
+        const apiKey = ""; 
+        let isVoiceMode = false;
         let conversationHistory = [
-            { role: "user", parts: [{ text: "IDENTITY: You are Puck, a sophisticated DAP butler. TONE: Calm, authoritative, executive. BEHAVIOR: Use natural pauses. Never sound rushed. If asked for info, provide it with weight. Collect: Name, Date, Pickup, Destination, Pax. Require 'Confirm' to finalize." }] }
+            { role: "user", parts: [{ text: "IDENTITY: You are Alfred, a prestigious butler. TONE: Mid-Atlantic, sophisticated, calm. MISSION: Arrange travel to airports (PHL, JFK, EWR, IAD, DCA). Collect Name, Date, Pickup, Destination, Pax. Require verbal 'Confirm' to finalize. Keep it classy and concise." }] }
         ];
 
-        const toggleBtn = document.getElementById('toggle-btn');
-        const statusText = document.getElementById('status-text');
-        const orb = document.getElementById('orb');
+        const micToggle = document.getElementById('mic-toggle');
+        const micText = document.getElementById('mic-text');
+        const chatInput = document.getElementById('chat-input');
+        const sendBtn = document.getElementById('send-btn');
         const feed = document.getElementById('feed');
-        const waveViz = document.getElementById('wave-viz');
+        const sttPreview = document.getElementById('stt-preview');
+        const uplink = document.getElementById('uplink-status');
 
         const synth = window.speechSynthesis;
         const SpeechRecognition = window.webkitSpeechRecognition || window.SpeechRecognition;
         const recognition = new SpeechRecognition();
 
-        recognition.continuous = false; // Mobile Chrome handles false better for command-patterns
-        recognition.interimResults = true; // Set to true so we can 'see' speech happening
+        recognition.continuous = true;
+        recognition.interimResults = true;
         recognition.lang = 'en-US';
 
         function getExecutiveVoice() {
             const voices = synth.getVoices();
-            return voices.find(v => v.name.includes('Natural')) || 
+            return voices.find(v => v.name.includes('Natural') && v.lang.includes('en-GB')) || 
                    voices.find(v => v.name.includes('Google UK English Male')) || 
-                   voices.find(v => v.name.includes('Premium')) ||
-                   voices.find(v => v.lang.includes('en-GB')) ||
                    voices[0];
         }
 
         function speak(text) {
-            recognition.abort(); 
+            if (isVoiceMode) recognition.stop();
             synth.cancel();
 
             const phrases = text.split(/[,.;:?!]/g).filter(p => p.trim().length > 0);
@@ -111,79 +218,56 @@
             phrases.forEach((phrase, index) => {
                 const utterance = new SpeechSynthesisUtterance(phrase.trim());
                 utterance.voice = getExecutiveVoice();
-                utterance.rate = 0.92;
+                utterance.rate = 0.9; 
                 utterance.pitch = 0.85;
 
                 utterance.onstart = () => {
-                    orb.classList.add('active', 'pulse');
-                    statusText.innerText = "Speaking";
-                    waveViz.classList.add('hidden');
+                    uplink.innerText = "ALFRED SPEAKING";
+                    animateBand(true, 'talking');
                 };
 
                 utterance.onend = () => {
                     if (index === phrases.length - 1) {
-                        orb.classList.remove('active', 'pulse');
-                        // Crucial: Give the browser 500ms to release the audio channel before starting mic
-                        setTimeout(startListening, 500);
+                        uplink.innerText = isVoiceMode ? "LISTENING" : "STDBY";
+                        animateBand(isVoiceMode, 'listening');
+                        if (isVoiceMode) setTimeout(() => recognition.start(), 400);
                     }
                 };
-
                 synth.speak(utterance);
             });
         }
 
-        function startListening() {
-            if (isListening) return;
-            try {
-                // Hard reset of recognition session to clear any browser audio locks
-                recognition.abort(); 
-                setTimeout(() => {
-                    recognition.start();
-                    log("STATUS", "Microphone Active...");
-                }, 100);
-            } catch (e) {
-                console.error("Recognition Start Error:", e);
-            }
-        }
+        recognition.onstart = () => {
+            uplink.innerText = "LISTENING";
+            animateBand(true, 'listening');
+        };
 
-        recognition.onstart = () => { 
-            isListening = true; 
-            statusText.innerText = "Listening"; 
-            waveViz.classList.remove('hidden');
-            animateWave(true);
-        };
-        
-        recognition.onend = () => { 
-            isListening = false; 
-            statusText.innerText = "Processing"; 
-            waveViz.classList.add('hidden');
-            animateWave(false);
-        };
-        
-        recognition.onerror = (event) => {
-            log("MIC ERROR", event.error, "text-red-400");
-            if (event.error === 'no-speech') {
-                // If it timed out, just restart quietly
-                setTimeout(startListening, 1000);
+        recognition.onend = () => {
+            if (!isVoiceMode) {
+                uplink.innerText = "STDBY";
+                animateBand(false);
+            } else if (!synth.speaking) {
+                recognition.start();
             }
         };
 
-        recognition.onresult = async (event) => {
-            const transcript = event.results[0][0].transcript;
-            const isFinal = event.results[0].isFinal;
-
-            if (isFinal) {
-                log("USER", transcript, "text-stone-100");
-                if(synth.speaking) synth.cancel(); 
-                await getAIResponse(transcript);
-            } else {
-                // Provide visual feedback for interim results
-                statusText.innerText = "Hearing: " + transcript;
+        recognition.onresult = (event) => {
+            let interim = '';
+            let final = '';
+            for (let i = event.resultIndex; i < event.results.length; ++i) {
+                if (event.results[i].isFinal) final += event.results[i][0].transcript;
+                else interim += event.results[i][0].transcript;
+            }
+            sttPreview.innerText = interim || final;
+            if (final) {
+                log("UPLINK", final, "text-white");
+                sttPreview.innerText = "";
+                getAIResponse(final);
             }
         };
 
         async function getAIResponse(userInput) {
-            log("SYSTEM", "Neural buffer syncing...");
+            log("NEURAL", "Processing context...");
             conversationHistory.push({ role: "user", parts: [{ text: userInput }] });
 
             try {
@@ -200,13 +284,7 @@
                                     reply: { type: "string" },
                                     saveData: { 
                                         type: "OBJECT",
-                                        properties: {
-                                            name: { type: "string" },
-                                            when: { type: "string" },
-                                            from: { type: "string" },
-                                            to: { type: "string" },
-                                            passengers: { type: "integer" }
-                                        }
+                                        properties: { name: { type: "string" }, when: { type: "string" }, from: { type: "string" }, to: { type: "string" }, passengers: { type: "integer" } }
                                     }
                                 }
                             }
@@ -217,11 +295,11 @@
                 const data = await response.json();
                 const result = JSON.parse(data.candidates[0].content.parts[0].text);
                 
-                log("PUCK", result.reply, "text-stone-400 italic font-light");
+                log("ALFRED", result.reply, "text-sky-400 italic font-light");
                 conversationHistory.push({ role: "model", parts: [{ text: result.reply }] });
                 
                 if (result.saveData && (userInput.toLowerCase().includes("confirm") || userInput.toLowerCase().includes("yes"))) {
-                    log("SUCCESS", "Manifest sync complete.");
+                    log("SYSTEM", "Data finalized.");
                     document.getElementById('json-display').innerText = JSON.stringify(result.saveData, null, 2);
                     document.getElementById('confirmation-modal').classList.remove('hidden');
                 }
@@ -229,46 +307,66 @@
                 speak(result.reply);
 
             } catch (err) {
-                log("ERROR", "Uplink destabilized.", "text-red-500");
-                speak("Forgive me. My neural link is experiencing minor interference.");
+                log("ERROR", "Uplink destabilized.");
             }
         }
 
-        function log(type, msg, color = "text-stone-300") {
+        function handleManualInput() {
+            const val = chatInput.value.trim();
+            if (val) {
+                isVoiceMode = false;
+                recognition.stop();
+                log("MANUAL", val, "text-sky-100 font-bold");
+                chatInput.value = "";
+                getAIResponse(val);
+            }
+        }
+
+        chatInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') handleManualInput(); });
+        sendBtn.addEventListener('click', handleManualInput);
+
+        micToggle.addEventListener('click', () => {
+            if (!isVoiceMode) {
+                isVoiceMode = true;
+                log("SYSTEM", "Voice link requested.");
+                micText.innerText = "Voice Engaged";
+                speak("Alfred standing by. How shall we coordinate your airport travel?");
+            } else {
+                isVoiceMode = false;
+                micText.innerText = "Initialize Voice";
+                recognition.stop();
+                synth.cancel();
+                log("SYSTEM", "Voice link suspended.");
+            }
+        });
+
+        function log(type, msg, color = "text-sky-300") {
             const div = document.createElement('div');
-            div.className = "border-l border-stone-800 pl-3 transition-opacity duration-300";
-            div.innerHTML = `<span class="text-[var(--dap-gold)] font-bold mr-2 opacity-50 uppercase tracking-tighter">[${type}]</span><span class="${color}">${msg}</span>`;
+            div.className = "border-l-2 border-sky-900/50 pl-4 py-1 animate-fade-in";
+            div.innerHTML = `<span class="text-sky-600 font-bold mr-3 text-[9px] uppercase tracking-widest">[${type}]</span><span class="${color}">${msg}</span>`;
             feed.appendChild(div);
             feed.scrollTop = feed.scrollHeight;
         }
 
-        let waveInterval;
-        function animateWave(active) {
-            const bars = document.querySelectorAll('.wave-bar');
+        let bandInterval;
+        function animateBand(active, mode) {
+            const bars = document.querySelectorAll('.band-bar');
+            clearInterval(bandInterval);
             if (!active) {
-                clearInterval(waveInterval);
-                bars.forEach(b => b.style.height = '5px');
+                bars.forEach(b => { b.style.height = '4px'; b.classList.remove('active'); });
                 return;
             }
-            waveInterval = setInterval(() => {
+            bandInterval = setInterval(() => {
                 bars.forEach(b => {
-                    b.style.height = Math.floor(Math.random() * 20 + 5) + 'px';
+                    const h = mode === 'talking' ? Math.random() * 50 + 10 : Math.random() * 15 + 4;
+                    b.style.height = h + 'px';
+                    if (h > 30) b.classList.add('active'); else b.classList.remove('active');
                 });
-            }, 100);
+            }, 80);
         }
 
-        toggleBtn.addEventListener('click', () => {
-            if (synth.speaking) synth.cancel();
-            log("SYSTEM", "Link established.");
-            speak("Puck here. I am monitoring the transit conditions for your Philadelphia arrival. How shall we coordinate?");
-        });
-
         function closeModal() { document.getElementById('confirmation-modal').classList.add('hidden'); }
-        
-        window.speechSynthesis.onvoiceschanged = () => {
-            const v = getExecutiveVoice();
-            log("VOICE", `Profile: ${v ? v.name : 'Standard'}`);
-        };
+        window.speechSynthesis.onvoiceschanged = () => getExecutiveVoice();
     </script>
 </body>
 </html>
