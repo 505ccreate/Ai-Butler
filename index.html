@@ -11,10 +11,16 @@
         body { background-color: var(--dap-black); color: #e5e5e5; font-family: 'Inter', sans-serif; overflow: hidden; touch-action: manipulation; }
         .serif { font-family: 'Playfair Display', serif; }
         .glass { background: rgba(26, 26, 26, 0.6); backdrop-filter: blur(10px); border: 1px solid rgba(197, 160, 89, 0.1); }
-        .status-orb { width: 140px; height: 140px; border-radius: 50%; background: radial-gradient(circle, rgba(197, 160, 89, 0.2) 0%, rgba(5, 5, 5, 1) 70%); border: 1px solid rgba(197, 160, 89, 0.3); transition: all 0.5s; position: relative; }
+        .status-orb { width: 140px; height: 140px; border-radius: 50%; background: radial-gradient(circle, rgba(197, 160, 89, 0.2) 0%, rgba(5, 5, 5, 1) 70%); border: 1px solid rgba(197, 160, 89, 0.3); transition: all 0.5s; position: relative; display: flex; align-items: center; justify-content: center; }
         .status-orb.active { box-shadow: 0 0 60px rgba(197, 160, 89, 0.5); border-color: var(--dap-gold); transform: scale(1.1); }
+        
+        /* Audio Wave Visualizer */
+        .wave-container { display: flex; align-items: center; gap: 3px; height: 30px; }
+        .wave-bar { width: 3px; height: 5px; background: var(--dap-gold); border-radius: 10px; transition: height 0.1s ease; }
+        
         @keyframes pulse-animation { 0% { transform: scale(0.98); opacity: 0.6; } 50% { transform: scale(1.05); opacity: 0.9; } 100% { transform: scale(0.98); opacity: 0.6; } }
         .pulse { animation: pulse-animation 2s infinite ease-in-out; }
+        
         .intelligence-feed::-webkit-scrollbar { width: 4px; }
         .intelligence-feed::-webkit-scrollbar-thumb { background: var(--dap-gold); border-radius: 10px; }
     </style>
@@ -28,7 +34,12 @@
 
     <main class="w-full max-w-5xl grid md:grid-cols-2 gap-8 items-center mt-12">
         <div class="flex flex-col items-center space-y-10 order-2 md:order-1">
-            <div id="orb" class="status-orb flex items-center justify-center"></div>
+            <div id="orb" class="status-orb">
+                <div id="wave-viz" class="wave-container hidden">
+                    <div class="wave-bar"></div><div class="wave-bar"></div><div class="wave-bar"></div><div class="wave-bar"></div><div class="wave-bar"></div>
+                </div>
+            </div>
+            
             <div class="text-center">
                 <p id="status-text" class="text-stone-400 text-[10px] tracking-[0.3em] uppercase">Ready for Instructions</p>
                 <p id="sub-status" class="text-stone-600 text-[10px] mt-2 italic px-4">Neural link initialized.</p>
@@ -60,7 +71,7 @@
     </div>
 
     <script>
-        // --- NEURAL NATIVE ARCHITECTURE (Elijah's "Smooth" Update) ---
+        // --- ELITE NATIVE ARCHITECTURE (Elijah's "Smooth" Update) ---
         const apiKey = ""; // Gemini API Key
         let isListening = false;
         
@@ -72,18 +83,18 @@
         const statusText = document.getElementById('status-text');
         const orb = document.getElementById('orb');
         const feed = document.getElementById('feed');
+        const waveViz = document.getElementById('wave-viz');
 
         const synth = window.speechSynthesis;
         const SpeechRecognition = window.webkitSpeechRecognition || window.SpeechRecognition;
         const recognition = new SpeechRecognition();
 
-        recognition.continuous = false;
-        recognition.interimResults = false;
+        recognition.continuous = false; // Mobile Chrome handles false better for command-patterns
+        recognition.interimResults = true; // Set to true so we can 'see' speech happening
         recognition.lang = 'en-US';
 
         function getExecutiveVoice() {
             const voices = synth.getVoices();
-            // We prioritize 'Natural' or 'Neural' variants if available on laptop OS
             return voices.find(v => v.name.includes('Natural')) || 
                    voices.find(v => v.name.includes('Google UK English Male')) || 
                    voices.find(v => v.name.includes('Premium')) ||
@@ -91,34 +102,29 @@
                    voices[0];
         }
 
-        /**
-         * Neural Chunking (The Elijah Pacing Engine)
-         * Splits text to ensure the browser pauses naturally.
-         */
         function speak(text) {
             recognition.abort(); 
-            synth.cancel(); // Clear any pending robotic speech
+            synth.cancel();
 
-            // Split into phrases based on punctuation for natural breathing
             const phrases = text.split(/[,.;:?!]/g).filter(p => p.trim().length > 0);
             
             phrases.forEach((phrase, index) => {
                 const utterance = new SpeechSynthesisUtterance(phrase.trim());
                 utterance.voice = getExecutiveVoice();
-                utterance.rate = 0.92; // Slightly slower for prestige
-                utterance.pitch = 0.85; // Deeper for authority
-                utterance.volume = 1.0;
+                utterance.rate = 0.92;
+                utterance.pitch = 0.85;
 
                 utterance.onstart = () => {
                     orb.classList.add('active', 'pulse');
                     statusText.innerText = "Speaking";
+                    waveViz.classList.add('hidden');
                 };
 
                 utterance.onend = () => {
-                    // Only start listening after the LAST phrase is finished
                     if (index === phrases.length - 1) {
                         orb.classList.remove('active', 'pulse');
-                        setTimeout(startListening, 300); // Tiny buffer for smoothness
+                        // Crucial: Give the browser 500ms to release the audio channel before starting mic
+                        setTimeout(startListening, 500);
                     }
                 };
 
@@ -129,19 +135,51 @@
         function startListening() {
             if (isListening) return;
             try {
-                recognition.start();
-                log("STATUS", "Listening...");
-            } catch (e) {}
+                // Hard reset of recognition session to clear any browser audio locks
+                recognition.abort(); 
+                setTimeout(() => {
+                    recognition.start();
+                    log("STATUS", "Microphone Active...");
+                }, 100);
+            } catch (e) {
+                console.error("Recognition Start Error:", e);
+            }
         }
 
-        recognition.onstart = () => { isListening = true; statusText.innerText = "Listening"; };
-        recognition.onend = () => { isListening = false; statusText.innerText = "Processing"; };
+        recognition.onstart = () => { 
+            isListening = true; 
+            statusText.innerText = "Listening"; 
+            waveViz.classList.remove('hidden');
+            animateWave(true);
+        };
         
+        recognition.onend = () => { 
+            isListening = false; 
+            statusText.innerText = "Processing"; 
+            waveViz.classList.add('hidden');
+            animateWave(false);
+        };
+        
+        recognition.onerror = (event) => {
+            log("MIC ERROR", event.error, "text-red-400");
+            if (event.error === 'no-speech') {
+                // If it timed out, just restart quietly
+                setTimeout(startListening, 1000);
+            }
+        };
+
         recognition.onresult = async (event) => {
             const transcript = event.results[0][0].transcript;
-            log("USER", transcript, "text-stone-100");
-            if(synth.speaking) synth.cancel(); 
-            await getAIResponse(transcript);
+            const isFinal = event.results[0].isFinal;
+
+            if (isFinal) {
+                log("USER", transcript, "text-stone-100");
+                if(synth.speaking) synth.cancel(); 
+                await getAIResponse(transcript);
+            } else {
+                // Provide visual feedback for interim results
+                statusText.innerText = "Hearing: " + transcript;
+            }
         };
 
         async function getAIResponse(userInput) {
@@ -202,6 +240,21 @@
             div.innerHTML = `<span class="text-[var(--dap-gold)] font-bold mr-2 opacity-50 uppercase tracking-tighter">[${type}]</span><span class="${color}">${msg}</span>`;
             feed.appendChild(div);
             feed.scrollTop = feed.scrollHeight;
+        }
+
+        let waveInterval;
+        function animateWave(active) {
+            const bars = document.querySelectorAll('.wave-bar');
+            if (!active) {
+                clearInterval(waveInterval);
+                bars.forEach(b => b.style.height = '5px');
+                return;
+            }
+            waveInterval = setInterval(() => {
+                bars.forEach(b => {
+                    b.style.height = Math.floor(Math.random() * 20 + 5) + 'px';
+                });
+            }, 100);
         }
 
         toggleBtn.addEventListener('click', () => {
