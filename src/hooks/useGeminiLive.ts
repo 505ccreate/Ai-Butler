@@ -15,6 +15,14 @@ export function useGeminiLive(
     wsStatus: 'closed',
   });
 
+  const statusRef = useRef<ConnectionStatus>('offline');
+
+  // Update status and ref together
+  const updateStatus = (newStatus: ConnectionStatus) => {
+    statusRef.current = newStatus;
+    setStatus(newStatus);
+  };
+
   const audioContextRef = useRef<AudioContext | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const processorRef = useRef<ScriptProcessorNode | null>(null);
@@ -27,7 +35,7 @@ export function useGeminiLive(
   const initAudio = async () => {
     if (!audioContextRef.current) {
       audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({
-        sampleRate: 24000 // Match model output if possible, or just use default
+        sampleRate: 24000
       });
     }
     if (audioContextRef.current.state === 'suspended') {
@@ -39,7 +47,7 @@ export function useGeminiLive(
   const playNextChunk = useCallback(async () => {
     if (audioQueueRef.current.length === 0 || isPlayingRef.current || !audioContextRef.current) {
       if (audioQueueRef.current.length === 0 && isPlayingRef.current === false) {
-        setStatus(prev => prev === 'speaking' ? 'listening' : prev);
+        if (statusRef.current === 'speaking') updateStatus('listening');
       }
       return;
     }
@@ -69,14 +77,14 @@ export function useGeminiLive(
     };
 
     source.start();
-    setStatus('speaking');
+    updateStatus('speaking');
   }, []);
 
   // Highly optimized base64 encoding for audio chunks
   const arrayBufferToBase64 = (buffer: ArrayBuffer) => {
     const bytes = new Uint8Array(buffer);
     let binary = '';
-    const chunk = 8192; // Process in larger chunks for speed
+    const chunk = 8192;
     for (let i = 0; i < bytes.length; i += chunk) {
       binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk) as any);
     }
@@ -88,27 +96,26 @@ export function useGeminiLive(
     try {
       // 1. Check for Secure Context (Required for Mic)
       if (!window.isSecureContext) {
-        throw new Error("The Voice Concierge requires a secure connection (HTTPS or localhost). Please ensure you are accessing the site securely.");
+        throw new Error("The Voice Concierge requires a secure connection (HTTPS or localhost).");
       }
 
-      setStatus('connecting');
+      updateStatus('connecting');
       setDebug(prev => ({ ...prev, wsStatus: 'connecting', lastError: undefined }));
 
-      // 2. Start audio and mic requests in parallel for speed
+      // 2. Start audio and mic requests in parallel
       const audioInitPromise = initAudio();
       
-      // Environment-agnostic API Key check
       const apiKey = 
         (import.meta as any).env?.VITE_GEMINI_API_KEY || 
         (import.meta as any).env?.GEMINI_API_KEY ||
         process.env.GEMINI_API_KEY;
       
       if (!apiKey || apiKey === '""' || apiKey === "''") {
-        throw new Error("Gemini API Key is missing. Please ensure GEMINI_API_KEY is set in your environment variables.");
+        throw new Error("Gemini API Key is missing.");
       }
 
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        throw new Error("Your browser has blocked microphone access because this site is not secure.");
+        throw new Error("Microphone access is not available.");
       }
 
       const micPromise = navigator.mediaDevices.getUserMedia({ 
@@ -120,7 +127,6 @@ export function useGeminiLive(
         } 
       });
 
-      // Wait for both
       const [_, stream] = await Promise.all([audioInitPromise, micPromise]);
       
       streamRef.current = stream;
@@ -128,7 +134,8 @@ export function useGeminiLive(
 
       const ai = new GoogleGenAI({ apiKey });
 
-      const session = await ai.live.connect({
+      // Create the session promise first to avoid race conditions in callbacks
+      const sessionPromise = ai.live.connect({
         model: MODEL,
         config: {
           responseModalities: [Modality.AUDIO],
@@ -202,31 +209,32 @@ export function useGeminiLive(
         callbacks: {
           onopen: () => {
             setDebug(prev => ({ ...prev, wsStatus: 'open' }));
-            setStatus('listening');
+            updateStatus('listening');
 
-            // Trigger initial greeting correctly
-            sessionRef.current?.send({
-              clientContent: {
-                turns: [{
-                  role: 'user',
-                  parts: [{ text: "Hello Cam. Please introduce yourself and ask if I'm ready to book a reservation." }]
-                }]
-              }
+            // Use the promise to send the initial greeting safely
+            sessionPromise.then(session => {
+              session.send({
+                clientContent: {
+                  turns: [{
+                    role: 'user',
+                    parts: [{ text: "Hello Cam. Please introduce yourself and ask if I'm ready to book a reservation." }]
+                  }]
+                }
+              });
             });
 
             // Setup audio processing
             const source = audioContextRef.current!.createMediaStreamSource(stream);
-            // Use larger buffer to reduce message frequency and overhead
             const processor = audioContextRef.current!.createScriptProcessor(4096, 1, 1);
             processorRef.current = processor;
 
             processor.onaudioprocess = (e) => {
-              if (status === 'offline' || status === 'error') return;
+              // Use ref to avoid stale closure
+              if (statusRef.current === 'offline' || statusRef.current === 'error') return;
               
               const inputData = e.inputBuffer.getChannelData(0);
               const contextSampleRate = audioContextRef.current!.sampleRate;
               
-              // Optimized downsampling
               const ratio = contextSampleRate / 16000;
               const newLength = Math.floor(inputData.length / ratio);
               const pcmData = new Int16Array(newLength);
@@ -237,8 +245,10 @@ export function useGeminiLive(
               }
               
               const base64Data = arrayBufferToBase64(pcmData.buffer);
-              sessionRef.current?.sendRealtimeInput({
-                media: { data: base64Data, mimeType: 'audio/pcm;rate=16000' }
+              sessionPromise.then(session => {
+                session.sendRealtimeInput({
+                  media: { data: base64Data, mimeType: 'audio/pcm;rate=16000' }
+                });
               });
             };
 
@@ -270,46 +280,44 @@ export function useGeminiLive(
                 currentSourceRef.current = null;
                 audioQueueRef.current = [];
                 isPlayingRef.current = false;
-                setStatus('listening');
+                updateStatus('listening');
               }
 
               // Handle Tool Calls
               const toolCall = message.toolCall;
               if (toolCall) {
                 const call = toolCall.functionCalls[0];
-                if (call.name === 'update_reservation') {
-                  onBookingUpdate(call.args as Partial<BookingDetails>);
-                  setDebug(prev => ({ ...prev, lastToolCall: `update: ${JSON.stringify(call.args)}` }));
-                  
-                  // Send response back
-                  sessionRef.current?.sendToolResponse({
-                    functionResponses: [{
-                      id: call.id,
-                      response: { output: { success: true } }
-                    }]
-                  });
-                } else if (call.name === 'submit_reservation') {
-                  onBookingSubmit();
-                  setDebug(prev => ({ ...prev, lastToolCall: 'submit' }));
-                  
-                  // Send response back
-                  sessionRef.current?.sendToolResponse({
-                    functionResponses: [{
-                      id: call.id,
-                      response: { output: { success: true } }
-                    }]
-                  });
-                }
+                sessionPromise.then(session => {
+                  if (call.name === 'update_reservation') {
+                    onBookingUpdate(call.args as Partial<BookingDetails>);
+                    setDebug(prev => ({ ...prev, lastToolCall: `update: ${JSON.stringify(call.args)}` }));
+                    
+                    session.sendToolResponse({
+                      functionResponses: [{
+                        id: call.id,
+                        response: { output: { success: true } }
+                      }]
+                    });
+                  } else if (call.name === 'submit_reservation') {
+                    onBookingSubmit();
+                    setDebug(prev => ({ ...prev, lastToolCall: 'submit' }));
+                    
+                    session.sendToolResponse({
+                      functionResponses: [{
+                        id: call.id,
+                        response: { output: { success: true } }
+                      }]
+                    });
+                  }
+                });
               }
 
               // Handle Transcripts
-              // User Transcript (from inputAudioTranscription)
               const userTranscript = (message.serverContent as any)?.userTurn?.parts?.find((p: any) => p.text)?.text;
               if (userTranscript) {
                 setTranscript(prev => [...prev, { role: 'user', text: userTranscript, timestamp: Date.now() }]);
               }
 
-              // Model Transcript (from outputAudioTranscription)
               const modelTranscript = message.serverContent?.modelTurn?.parts?.find(p => p.text)?.text;
               if (modelTranscript) {
                 setTranscript(prev => [...prev, { role: 'model', text: modelTranscript, timestamp: Date.now() }]);
@@ -319,26 +327,27 @@ export function useGeminiLive(
             }
           },
           onclose: () => {
+            console.log("Gemini Live connection closed");
             setDebug(prev => ({ ...prev, wsStatus: 'closed' }));
-            setStatus('offline');
+            updateStatus('offline');
           },
           onerror: (err) => {
             console.error("Live API Error:", err);
             setDebug(prev => ({ ...prev, wsStatus: 'error', lastError: String(err) }));
-            setStatus('error');
+            updateStatus('error');
           }
         }
       });
 
-      sessionRef.current = session;
+      sessionRef.current = await sessionPromise;
 
     } catch (err: any) {
       console.error("Connection Error:", err);
-      setStatus('error');
+      updateStatus('error');
       
       let errorMessage = String(err);
       if (err.name === 'NotAllowedError' || err.message?.includes('Permission denied')) {
-        errorMessage = "Microphone access was denied. Please enable it in your browser settings to use the voice concierge.";
+        errorMessage = "Microphone access was denied.";
         setDebug(prev => ({ ...prev, micPermission: 'denied' }));
       }
       
@@ -350,7 +359,7 @@ export function useGeminiLive(
     sessionRef.current?.close();
     processorRef.current?.disconnect();
     streamRef.current?.getTracks().forEach(track => track.stop());
-    setStatus('offline');
+    updateStatus('offline');
   };
 
   return { status, transcript, debug, connect, disconnect };
