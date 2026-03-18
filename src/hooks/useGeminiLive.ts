@@ -46,7 +46,7 @@ export function useGeminiLive(
 
     isPlayingRef.current = true;
     const chunk = audioQueueRef.current.shift()!;
-
+    
     const float32Data = new Float32Array(chunk.length);
     for (let i = 0; i < chunk.length; i++) {
       float32Data[i] = chunk[i] / 32768.0;
@@ -59,7 +59,7 @@ export function useGeminiLive(
     source.buffer = buffer;
     source.connect(audioContextRef.current.destination);
     currentSourceRef.current = source;
-
+    
     source.onended = () => {
       if (currentSourceRef.current === source) {
         currentSourceRef.current = null;
@@ -96,12 +96,14 @@ export function useGeminiLive(
 
       // 2. Environment-agnostic API Key check
       // AI Studio uses process.env, local Vite uses import.meta.env
-      const viteKey = (import.meta as any).env?.VITE_GEMINI_API_KEY;
-      const processKey = typeof process !== 'undefined' ? process.env?.GEMINI_API_KEY : undefined;
-      const apiKey = viteKey || processKey;
-
-      if (!apiKey) {
-        throw new Error("Gemini API Key is missing. If running locally, ensure VITE_GEMINI_API_KEY is set in your .env file.");
+      // We use a fallback chain to ensure the key is found in any environment
+      const apiKey = 
+        (import.meta as any).env?.VITE_GEMINI_API_KEY || 
+        (import.meta as any).env?.GEMINI_API_KEY ||
+        process.env.GEMINI_API_KEY;
+      
+      if (!apiKey || apiKey === '""' || apiKey === "''") {
+        throw new Error("Gemini API Key is missing. If running locally, ensure VITE_GEMINI_API_KEY is set in your .env file. If on Vercel, ensure GEMINI_API_KEY is set in Environment Variables and you have REDEPLOYED.");
       }
 
       // 3. Request Mic with explicit error handling
@@ -111,13 +113,13 @@ export function useGeminiLive(
 
       let stream: MediaStream;
       try {
-        stream = await navigator.mediaDevices.getUserMedia({
+        stream = await navigator.mediaDevices.getUserMedia({ 
           audio: {
             echoCancellation: true,
             noiseSuppression: true,
             autoGainControl: true,
             sampleRate: 16000
-          }
+          } 
         });
       } catch (micErr: any) {
         if (micErr.name === 'NotAllowedError' || micErr.name === 'PermissionDeniedError') {
@@ -221,17 +223,17 @@ export function useGeminiLive(
             processor.onaudioprocess = (e) => {
               const inputData = e.inputBuffer.getChannelData(0);
               const contextSampleRate = audioContextRef.current!.sampleRate;
-
+              
               // Optimized downsampling
               const ratio = contextSampleRate / 16000;
               const newLength = Math.floor(inputData.length / ratio);
               const pcmData = new Int16Array(newLength);
-
+              
               for (let i = 0; i < newLength; i++) {
                 const sample = inputData[Math.floor(i * ratio)] || 0;
                 pcmData[i] = sample < 0 ? sample * 32768 : sample * 32767;
               }
-
+              
               const base64Data = arrayBufferToBase64(pcmData.buffer);
               sessionRef.current?.sendRealtimeInput({
                 media: { data: base64Data, mimeType: 'audio/pcm;rate=16000' }
@@ -275,7 +277,7 @@ export function useGeminiLive(
               if (call.name === 'update_reservation') {
                 onBookingUpdate(call.args as Partial<BookingDetails>);
                 setDebug(prev => ({ ...prev, lastToolCall: `update: ${JSON.stringify(call.args)}` }));
-
+                
                 // Send response back
                 sessionRef.current?.sendToolResponse({
                   functionResponses: [{
@@ -286,7 +288,7 @@ export function useGeminiLive(
               } else if (call.name === 'submit_reservation') {
                 onBookingSubmit();
                 setDebug(prev => ({ ...prev, lastToolCall: 'submit' }));
-
+                
                 // Send response back
                 sessionRef.current?.sendToolResponse({
                   functionResponses: [{
@@ -327,13 +329,13 @@ export function useGeminiLive(
     } catch (err: any) {
       console.error("Connection Error:", err);
       setStatus('error');
-
+      
       let errorMessage = String(err);
       if (err.name === 'NotAllowedError' || err.message?.includes('Permission denied')) {
         errorMessage = "Microphone access was denied. Please enable it in your browser settings to use the voice concierge.";
         setDebug(prev => ({ ...prev, micPermission: 'denied' }));
       }
-
+      
       setDebug(prev => ({ ...prev, lastError: errorMessage }));
     }
   };
