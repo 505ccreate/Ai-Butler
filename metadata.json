@@ -1,0 +1,7 @@
+{
+  "name": "DAP Executives Concierge",
+  "description": "A luxury black car service voice concierge powered by Gemini Live API.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
