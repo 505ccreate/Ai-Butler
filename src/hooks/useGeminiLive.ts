@@ -110,8 +110,10 @@ export function useGeminiLive(
         (import.meta as any).env?.GEMINI_API_KEY ||
         process.env.GEMINI_API_KEY;
       
-      if (!apiKey || apiKey === '""' || apiKey === "''") {
-        throw new Error("Gemini API Key is missing.");
+      console.log("API Key found:", apiKey ? "Yes (length: " + apiKey.length + ")" : "No");
+      
+      if (!apiKey || apiKey === '""' || apiKey === "''" || apiKey === "undefined") {
+        throw new Error("Gemini API Key is missing or invalid. Please check your environment variables.");
       }
 
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
