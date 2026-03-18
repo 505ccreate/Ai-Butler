@@ -72,17 +72,19 @@ export function useGeminiLive(
     setStatus('speaking');
   }, []);
 
-  // Helper for safe base64 encoding - optimized
+  // Highly optimized base64 encoding for audio chunks
   const arrayBufferToBase64 = (buffer: ArrayBuffer) => {
     const bytes = new Uint8Array(buffer);
     let binary = '';
-    for (let i = 0; i < bytes.byteLength; i++) {
-      binary += String.fromCharCode(bytes[i]);
+    const chunk = 8192; // Process in larger chunks for speed
+    for (let i = 0; i < bytes.length; i += chunk) {
+      binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk) as any);
     }
     return window.btoa(binary);
   };
 
   const connect = async () => {
+    console.log("Connecting to Gemini Live...");
     try {
       // 1. Check for Secure Context (Required for Mic)
       if (!window.isSecureContext) {
@@ -92,42 +94,35 @@ export function useGeminiLive(
       setStatus('connecting');
       setDebug(prev => ({ ...prev, wsStatus: 'connecting', lastError: undefined }));
 
-      await initAudio();
-
-      // 2. Environment-agnostic API Key check
-      // AI Studio uses process.env, local Vite uses import.meta.env
-      // We use a fallback chain to ensure the key is found in any environment
+      // 2. Start audio and mic requests in parallel for speed
+      const audioInitPromise = initAudio();
+      
+      // Environment-agnostic API Key check
       const apiKey = 
         (import.meta as any).env?.VITE_GEMINI_API_KEY || 
         (import.meta as any).env?.GEMINI_API_KEY ||
         process.env.GEMINI_API_KEY;
       
       if (!apiKey || apiKey === '""' || apiKey === "''") {
-        throw new Error("Gemini API Key is missing. If running locally, ensure VITE_GEMINI_API_KEY is set in your .env file. If on Vercel, ensure GEMINI_API_KEY is set in Environment Variables and you have REDEPLOYED.");
+        throw new Error("Gemini API Key is missing. Please ensure GEMINI_API_KEY is set in your environment variables.");
       }
 
-      // 3. Request Mic with explicit error handling
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        throw new Error("Your browser has blocked microphone access because this site is not secure. Please use 'http://localhost:3000' instead of an IP address, or use HTTPS.");
+        throw new Error("Your browser has blocked microphone access because this site is not secure.");
       }
 
-      let stream: MediaStream;
-      try {
-        stream = await navigator.mediaDevices.getUserMedia({ 
-          audio: {
-            echoCancellation: true,
-            noiseSuppression: true,
-            autoGainControl: true,
-            sampleRate: 16000
-          } 
-        });
-      } catch (micErr: any) {
-        if (micErr.name === 'NotAllowedError' || micErr.name === 'PermissionDeniedError') {
-          throw new Error("Microphone access denied. Please allow microphone access in your browser settings.");
-        }
-        throw new Error(`Microphone error: ${micErr.message || "Could not access microphone"}`);
-      }
+      const micPromise = navigator.mediaDevices.getUserMedia({ 
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+          sampleRate: 16000
+        } 
+      });
 
+      // Wait for both
+      const [_, stream] = await Promise.all([audioInitPromise, micPromise]);
+      
       streamRef.current = stream;
       setDebug(prev => ({ ...prev, micPermission: 'granted' }));
 
@@ -209,9 +204,14 @@ export function useGeminiLive(
             setDebug(prev => ({ ...prev, wsStatus: 'open' }));
             setStatus('listening');
 
-            // Trigger initial greeting
+            // Trigger initial greeting correctly
             sessionRef.current?.send({
-              text: "Please introduce yourself and ask if I'm ready to book a reservation."
+              clientContent: {
+                turns: [{
+                  role: 'user',
+                  parts: [{ text: "Hello Cam. Please introduce yourself and ask if I'm ready to book a reservation." }]
+                }]
+              }
             });
 
             // Setup audio processing
@@ -221,6 +221,8 @@ export function useGeminiLive(
             processorRef.current = processor;
 
             processor.onaudioprocess = (e) => {
+              if (status === 'offline' || status === 'error') return;
+              
               const inputData = e.inputBuffer.getChannelData(0);
               const contextSampleRate = audioContextRef.current!.sampleRate;
               
@@ -244,72 +246,76 @@ export function useGeminiLive(
             processor.connect(audioContextRef.current!.destination);
           },
           onmessage: async (message: LiveServerMessage) => {
-            // Handle Audio Output
-            const audioParts = message.serverContent?.modelTurn?.parts?.filter(p => p.inlineData);
-            if (audioParts && audioParts.length > 0) {
-              audioParts.forEach(part => {
-                if (part.inlineData) {
-                  const binaryString = atob(part.inlineData.data);
-                  const bytes = new Uint8Array(binaryString.length);
-                  for (let i = 0; i < binaryString.length; i++) {
-                    bytes[i] = binaryString.charCodeAt(i);
+            try {
+              // Handle Audio Output
+              const audioParts = message.serverContent?.modelTurn?.parts?.filter(p => p.inlineData);
+              if (audioParts && audioParts.length > 0) {
+                audioParts.forEach(part => {
+                  if (part.inlineData) {
+                    const binaryString = atob(part.inlineData.data);
+                    const bytes = new Uint8Array(binaryString.length);
+                    for (let i = 0; i < binaryString.length; i++) {
+                      bytes[i] = binaryString.charCodeAt(i);
+                    }
+                    const pcmData = new Int16Array(bytes.buffer);
+                    audioQueueRef.current.push(pcmData);
                   }
-                  const pcmData = new Int16Array(bytes.buffer);
-                  audioQueueRef.current.push(pcmData);
-                }
-              });
-              playNextChunk();
-            }
-
-            // Handle Interruption
-            if (message.serverContent?.interrupted) {
-              currentSourceRef.current?.stop();
-              currentSourceRef.current = null;
-              audioQueueRef.current = [];
-              isPlayingRef.current = false;
-              setStatus('listening');
-            }
-
-            // Handle Tool Calls
-            const toolCall = message.toolCall;
-            if (toolCall) {
-              const call = toolCall.functionCalls[0];
-              if (call.name === 'update_reservation') {
-                onBookingUpdate(call.args as Partial<BookingDetails>);
-                setDebug(prev => ({ ...prev, lastToolCall: `update: ${JSON.stringify(call.args)}` }));
-                
-                // Send response back
-                sessionRef.current?.sendToolResponse({
-                  functionResponses: [{
-                    id: call.id,
-                    response: { output: { success: true } }
-                  }]
                 });
-              } else if (call.name === 'submit_reservation') {
-                onBookingSubmit();
-                setDebug(prev => ({ ...prev, lastToolCall: 'submit' }));
-                
-                // Send response back
-                sessionRef.current?.sendToolResponse({
-                  functionResponses: [{
-                    id: call.id,
-                    response: { output: { success: true } }
-                  }]
-                });
+                playNextChunk();
               }
-            }
 
-            // Handle Transcripts
-            // User Transcript (from inputAudioTranscription)
-            const userTranscript = (message.serverContent as any)?.userTurn?.parts?.find((p: any) => p.text)?.text;
-            if (userTranscript) {
-              setTranscript(prev => [...prev, { role: 'user', text: userTranscript, timestamp: Date.now() }]);
-            }
+              // Handle Interruption
+              if (message.serverContent?.interrupted) {
+                currentSourceRef.current?.stop();
+                currentSourceRef.current = null;
+                audioQueueRef.current = [];
+                isPlayingRef.current = false;
+                setStatus('listening');
+              }
 
-            // Model Transcript (from outputAudioTranscription)
-            const modelTranscript = message.serverContent?.modelTurn?.parts?.find(p => p.text)?.text;
-            if (modelTranscript) {
-              setTranscript(prev => [...prev, { role: 'model', text: modelTranscript, timestamp: Date.now() }]);
+              // Handle Tool Calls
+              const toolCall = message.toolCall;
+              if (toolCall) {
+                const call = toolCall.functionCalls[0];
+                if (call.name === 'update_reservation') {
+                  onBookingUpdate(call.args as Partial<BookingDetails>);
+                  setDebug(prev => ({ ...prev, lastToolCall: `update: ${JSON.stringify(call.args)}` }));
+                  
+                  // Send response back
+                  sessionRef.current?.sendToolResponse({
+                    functionResponses: [{
+                      id: call.id,
+                      response: { output: { success: true } }
+                    }]
+                  });
+                } else if (call.name === 'submit_reservation') {
+                  onBookingSubmit();
+                  setDebug(prev => ({ ...prev, lastToolCall: 'submit' }));
+                  
+                  // Send response back
+                  sessionRef.current?.sendToolResponse({
+                    functionResponses: [{
+                      id: call.id,
+                      response: { output: { success: true } }
+                    }]
+                  });
+                }
+              }
+
+              // Handle Transcripts
+              // User Transcript (from inputAudioTranscription)
+              const userTranscript = (message.serverContent as any)?.userTurn?.parts?.find((p: any) => p.text)?.text;
+              if (userTranscript) {
+                setTranscript(prev => [...prev, { role: 'user', text: userTranscript, timestamp: Date.now() }]);
+              }
+
+              // Model Transcript (from outputAudioTranscription)
+              const modelTranscript = message.serverContent?.modelTurn?.parts?.find(p => p.text)?.text;
+              if (modelTranscript) {
+                setTranscript(prev => [...prev, { role: 'model', text: modelTranscript, timestamp: Date.now() }]);
+              }
+            } catch (msgErr) {
+              console.error("Error processing message:", msgErr);
             }
           },
           onclose: () => {
