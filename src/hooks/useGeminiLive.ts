@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { GoogleGenAI, LiveServerMessage, Modality, Type } from "@google/genai";
 import { BookingDetails, ConnectionStatus, DebugInfo, TranscriptMessage } from '../types';
 
-const MODEL = "gemini-2.5-flash-native-audio-preview-12-2025";
+const MODEL = "gemini-2.5-flash-native-audio-preview-09-2025";
 
 export function useGeminiLive(
   onBookingUpdate: (details: Partial<BookingDetails>) => void,
@@ -29,55 +29,73 @@ export function useGeminiLive(
   const sessionRef = useRef<any>(null);
   const audioQueueRef = useRef<Int16Array[]>([]);
   const isPlayingRef = useRef(false);
-  const currentSourceRef = useRef<AudioBufferSourceNode | null>(null);
+  const nextPlayTimeRef = useRef<number>(0);
+  const activeSourcesRef = useRef<AudioBufferSourceNode[]>([]);
 
   // Initialize Audio Context
   const initAudio = async () => {
-    if (!audioContextRef.current) {
-      audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({
-        sampleRate: 24000
-      });
-    }
-    if (audioContextRef.current.state === 'suspended') {
-      await audioContextRef.current.resume();
+    try {
+      if (!audioContextRef.current) {
+        // Use default hardware sample rate to avoid browser resampler glitches
+        audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+      }
+      if (audioContextRef.current.state === 'suspended') {
+        await audioContextRef.current.resume();
+      }
+      console.log("Audio Context initialized:", audioContextRef.current.state, "Sample Rate:", audioContextRef.current.sampleRate);
+    } catch (e) {
+      console.error("Failed to initialize audio context:", e);
+      throw new Error("Could not initialize audio system. Please ensure your browser supports Web Audio.");
     }
   };
 
-  // Play audio chunks
-  const playNextChunk = useCallback(async () => {
-    if (audioQueueRef.current.length === 0 || isPlayingRef.current || !audioContextRef.current) {
-      if (audioQueueRef.current.length === 0 && isPlayingRef.current === false) {
-        if (statusRef.current === 'speaking') updateStatus('listening');
-      }
-      return;
+  // Schedule audio chunks precisely to avoid crackling/underruns
+  const scheduleAudio = useCallback(() => {
+    if (!audioContextRef.current || audioQueueRef.current.length === 0) return;
+
+    const ctx = audioContextRef.current;
+    
+    // If we fell behind, reset the playhead with a tiny 50ms buffer
+    if (nextPlayTimeRef.current < ctx.currentTime) {
+      nextPlayTimeRef.current = ctx.currentTime + 0.05;
     }
 
+    while (audioQueueRef.current.length > 0) {
+      const chunk = audioQueueRef.current.shift()!;
+      const float32Data = new Float32Array(chunk.length);
+      for (let i = 0; i < chunk.length; i++) {
+        float32Data[i] = chunk[i] / 32768.0;
+      }
+
+      // Gemini Live output is always 24000Hz
+      const buffer = ctx.createBuffer(1, float32Data.length, 24000);
+      buffer.getChannelData(0).set(float32Data);
+
+      const source = ctx.createBufferSource();
+      source.buffer = buffer;
+      source.connect(ctx.destination);
+      
+      activeSourcesRef.current.push(source);
+      
+      source.start(nextPlayTimeRef.current);
+      nextPlayTimeRef.current += buffer.duration;
+
+      source.onended = () => {
+        activeSourcesRef.current = activeSourcesRef.current.filter(s => s !== source);
+        // If the audio context time has caught up to our last scheduled time, we are done playing
+        if (ctx.currentTime >= nextPlayTimeRef.current - 0.05) {
+          isPlayingRef.current = false;
+          if (statusRef.current === 'speaking') {
+            updateStatus('listening');
+          }
+        }
+      };
+    }
+    
     isPlayingRef.current = true;
-    const chunk = audioQueueRef.current.shift()!;
-    
-    const float32Data = new Float32Array(chunk.length);
-    for (let i = 0; i < chunk.length; i++) {
-      float32Data[i] = chunk[i] / 32768.0;
+    if (statusRef.current !== 'speaking') {
+      updateStatus('speaking');
     }
-
-    const buffer = audioContextRef.current.createBuffer(1, float32Data.length, 24000);
-    buffer.getChannelData(0).set(float32Data);
-
-    const source = audioContextRef.current.createBufferSource();
-    source.buffer = buffer;
-    source.connect(audioContextRef.current.destination);
-    currentSourceRef.current = source;
-    
-    source.onended = () => {
-      if (currentSourceRef.current === source) {
-        currentSourceRef.current = null;
-      }
-      isPlayingRef.current = false;
-      playNextChunk();
-    };
-
-    source.start();
-    updateStatus('speaking');
   }, []);
 
   // Highly optimized base64 encoding for audio chunks
@@ -99,10 +117,26 @@ export function useGeminiLive(
         throw new Error("The Voice Concierge requires a secure connection (HTTPS or localhost).");
       }
 
+      // 2. Check Microphone Permissions (Diagnostics)
+      if (navigator.permissions && (navigator.permissions as any).query) {
+        try {
+          const permissionStatus = await navigator.permissions.query({ name: 'microphone' as any });
+          console.log("Microphone permission status:", permissionStatus.state);
+          setDebug(prev => ({ ...prev, micPermission: permissionStatus.state }));
+          
+          permissionStatus.onchange = () => {
+            console.log("Microphone permission changed to:", permissionStatus.state);
+            setDebug(prev => ({ ...prev, micPermission: permissionStatus.state }));
+          };
+        } catch (e) {
+          console.warn("Permissions API not supported for microphone check:", e);
+        }
+      }
+
       updateStatus('connecting');
       setDebug(prev => ({ ...prev, wsStatus: 'connecting', lastError: undefined }));
 
-      // 2. Start audio and mic requests in parallel
+      // 3. Start audio and mic requests in parallel
       const audioInitPromise = initAudio();
       
       const apiKey = 
@@ -117,7 +151,7 @@ export function useGeminiLive(
       }
 
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        throw new Error("Microphone access is not available.");
+        throw new Error("Microphone access is not available in this browser.");
       }
 
       const micPromise = navigator.mediaDevices.getUserMedia({ 
@@ -127,9 +161,17 @@ export function useGeminiLive(
           autoGainControl: true,
           sampleRate: 16000
         } 
+      }).catch(err => {
+        console.error("Microphone access error:", err);
+        if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+          throw new Error("Microphone access was denied. Please enable it in your browser settings.");
+        }
+        throw new Error(`Microphone error: ${err.message || 'Unknown error'}`);
       });
 
       const [_, stream] = await Promise.all([audioInitPromise, micPromise]);
+      
+      if (!stream) throw new Error("Failed to acquire microphone stream.");
       
       streamRef.current = stream;
       setDebug(prev => ({ ...prev, micPermission: 'granted' }));
@@ -229,6 +271,9 @@ export function useGeminiLive(
                 // Use ref to avoid stale closure
                 if (statusRef.current === 'offline' || statusRef.current === 'error') return;
                 
+                // Mute mic while AI is speaking to prevent feedback loops and distortion
+                if (statusRef.current === 'speaking' || isPlayingRef.current) return;
+                
                 const inputData = e.inputBuffer.getChannelData(0);
                 const contextSampleRate = audioContextRef.current!.sampleRate;
                 
@@ -298,7 +343,7 @@ export function useGeminiLive(
                     audioQueueRef.current.push(pcmData);
                   }
                 });
-                playNextChunk();
+                scheduleAudio();
               }
 
               // Handle Transcripts
@@ -317,10 +362,11 @@ export function useGeminiLive(
               if (message.serverContent?.interrupted) {
                 console.log("Model interrupted");
                 audioQueueRef.current = [];
-                if (currentSourceRef.current) {
-                  currentSourceRef.current.stop();
-                  currentSourceRef.current = null;
-                }
+                nextPlayTimeRef.current = 0;
+                activeSourcesRef.current.forEach(source => {
+                  try { source.stop(); } catch (e) {}
+                });
+                activeSourcesRef.current = [];
                 isPlayingRef.current = false;
                 updateStatus('listening');
               }
@@ -412,10 +458,11 @@ export function useGeminiLive(
       streamRef.current = null;
     }
 
-    if (currentSourceRef.current) {
-      currentSourceRef.current.stop();
-      currentSourceRef.current = null;
-    }
+    activeSourcesRef.current.forEach(source => {
+      try { source.stop(); } catch (e) {}
+    });
+    activeSourcesRef.current = [];
+    nextPlayTimeRef.current = 0;
 
     if (sessionRef.current) {
       try {
