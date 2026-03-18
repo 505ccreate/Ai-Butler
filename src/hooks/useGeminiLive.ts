@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { GoogleGenAI, LiveServerMessage, Modality, Type } from "@google/genai";
 import { BookingDetails, ConnectionStatus, DebugInfo, TranscriptMessage } from '../types';
 
-const MODEL = "gemini-2.5-flash-native-audio-preview-09-2025";
+const MODEL = "gemini-2.5-flash-native-audio-preview-12-2025";
 
 export function useGeminiLive(
   onBookingUpdate: (details: Partial<BookingDetails>) => void,
@@ -208,63 +208,88 @@ export function useGeminiLive(
         },
         callbacks: {
           onopen: () => {
-            setDebug(prev => ({ ...prev, wsStatus: 'open' }));
-            updateStatus('listening');
+            try {
+              console.log("Gemini Live WebSocket opened");
+              setDebug(prev => ({ ...prev, wsStatus: 'open' }));
+              updateStatus('listening');
 
-            // Use the promise to send the initial greeting safely
-            sessionPromise.then(session => {
-              session.send({
-                clientContent: {
-                  turns: [{
-                    role: 'user',
-                    parts: [{ text: "Hello Cam. Please introduce yourself and ask if I'm ready to book a reservation." }]
-                  }]
-                }
-              });
-            });
-
-            // Setup audio processing
-            const source = audioContextRef.current!.createMediaStreamSource(stream);
-            const processor = audioContextRef.current!.createScriptProcessor(4096, 1, 1);
-            processorRef.current = processor;
-
-            processor.onaudioprocess = (e) => {
-              // Use ref to avoid stale closure
-              if (statusRef.current === 'offline' || statusRef.current === 'error') return;
-              
-              const inputData = e.inputBuffer.getChannelData(0);
-              const contextSampleRate = audioContextRef.current!.sampleRate;
-              
-              const ratio = contextSampleRate / 16000;
-              const newLength = Math.floor(inputData.length / ratio);
-              const pcmData = new Int16Array(newLength);
-              
-              for (let i = 0; i < newLength; i++) {
-                const sample = inputData[Math.floor(i * ratio)] || 0;
-                pcmData[i] = sample < 0 ? sample * 32768 : sample * 32767;
-              }
-              
-              const base64Data = arrayBufferToBase64(pcmData.buffer);
+              // Use the promise to send the initial greeting safely
               sessionPromise.then(session => {
-                session.sendRealtimeInput({
-                  media: { data: base64Data, mimeType: 'audio/pcm;rate=16000' }
-                });
+                console.log("Cam is ready and listening.");
               });
-            };
 
-            source.connect(processor);
-            processor.connect(audioContextRef.current!.destination);
+              // Setup audio processing
+              const source = audioContextRef.current!.createMediaStreamSource(stream);
+              const processor = audioContextRef.current!.createScriptProcessor(4096, 1, 1);
+              processorRef.current = processor;
+
+              processor.onaudioprocess = (e) => {
+                // Use ref to avoid stale closure
+                if (statusRef.current === 'offline' || statusRef.current === 'error') return;
+                
+                const inputData = e.inputBuffer.getChannelData(0);
+                const contextSampleRate = audioContextRef.current!.sampleRate;
+                
+                const ratio = contextSampleRate / 16000;
+                const newLength = Math.floor(inputData.length / ratio);
+                const pcmData = new Int16Array(newLength);
+                
+                for (let i = 0; i < newLength; i++) {
+                  const sample = inputData[Math.floor(i * ratio)] || 0;
+                  pcmData[i] = sample < 0 ? sample * 32768 : sample * 32767;
+                }
+                
+                const base64Data = arrayBufferToBase64(pcmData.buffer);
+                
+                // Use ref if available, otherwise promise
+                const activeSession = sessionRef.current;
+                if (activeSession) {
+                  try {
+                    activeSession.sendRealtimeInput({
+                      media: { data: base64Data, mimeType: 'audio/pcm;rate=16000' }
+                    });
+                  } catch (audioErr) {
+                    console.error("Error sending audio input:", audioErr);
+                  }
+                } else {
+                  sessionPromise.then(session => {
+                    try {
+                      session.sendRealtimeInput({
+                        media: { data: base64Data, mimeType: 'audio/pcm;rate=16000' }
+                      });
+                    } catch (audioErr) {
+                      console.error("Error sending audio input (promise):", audioErr);
+                    }
+                  });
+                }
+              };
+
+              source.connect(processor);
+              processor.connect(audioContextRef.current!.destination);
+            } catch (openErr) {
+              console.error("Error in onopen callback:", openErr);
+              setDebug(prev => ({ ...prev, lastError: "Initialization error" }));
+              updateStatus('error');
+            }
           },
           onmessage: async (message: LiveServerMessage) => {
             try {
+              // Log message types for debugging
+              if (message.serverContent?.modelTurn) {
+                console.log("Received model turn");
+              } else if (message.toolCall) {
+                console.log("Received tool call:", message.toolCall.functionCalls[0].name);
+              }
+
               // Handle Audio Output
               const audioParts = message.serverContent?.modelTurn?.parts?.filter(p => p.inlineData);
               if (audioParts && audioParts.length > 0) {
                 audioParts.forEach(part => {
                   if (part.inlineData) {
-                    const binaryString = atob(part.inlineData.data);
-                    const bytes = new Uint8Array(binaryString.length);
-                    for (let i = 0; i < binaryString.length; i++) {
+                    const binaryString = window.atob(part.inlineData.data);
+                    const len = binaryString.length;
+                    const bytes = new Uint8Array(len);
+                    for (let i = 0; i < len; i++) {
                       bytes[i] = binaryString.charCodeAt(i);
                     }
                     const pcmData = new Int16Array(bytes.buffer);
@@ -274,73 +299,88 @@ export function useGeminiLive(
                 playNextChunk();
               }
 
-              // Handle Interruption
-              if (message.serverContent?.interrupted) {
-                currentSourceRef.current?.stop();
-                currentSourceRef.current = null;
-                audioQueueRef.current = [];
-                isPlayingRef.current = false;
-                updateStatus('listening');
-              }
-
-              // Handle Tool Calls
-              const toolCall = message.toolCall;
-              if (toolCall) {
-                const call = toolCall.functionCalls[0];
-                sessionPromise.then(session => {
-                  if (call.name === 'update_reservation') {
-                    onBookingUpdate(call.args as Partial<BookingDetails>);
-                    setDebug(prev => ({ ...prev, lastToolCall: `update: ${JSON.stringify(call.args)}` }));
-                    
-                    session.sendToolResponse({
-                      functionResponses: [{
-                        id: call.id,
-                        response: { output: { success: true } }
-                      }]
-                    });
-                  } else if (call.name === 'submit_reservation') {
-                    onBookingSubmit();
-                    setDebug(prev => ({ ...prev, lastToolCall: 'submit' }));
-                    
-                    session.sendToolResponse({
-                      functionResponses: [{
-                        id: call.id,
-                        response: { output: { success: true } }
-                      }]
-                    });
-                  }
-                });
-              }
-
               // Handle Transcripts
+              const textParts = message.serverContent?.modelTurn?.parts?.filter(p => p.text);
+              if (textParts && textParts.length > 0) {
+                const text = textParts.map(p => p.text).join(' ');
+                setTranscript(prev => [...prev, { role: 'model', text, timestamp: Date.now() }]);
+              }
+
+              // Handle User Transcripts
               const userTranscript = (message.serverContent as any)?.userTurn?.parts?.find((p: any) => p.text)?.text;
               if (userTranscript) {
                 setTranscript(prev => [...prev, { role: 'user', text: userTranscript, timestamp: Date.now() }]);
               }
 
-              const modelTranscript = message.serverContent?.modelTurn?.parts?.find(p => p.text)?.text;
-              if (modelTranscript) {
-                setTranscript(prev => [...prev, { role: 'model', text: modelTranscript, timestamp: Date.now() }]);
+              if (message.serverContent?.interrupted) {
+                console.log("Model interrupted");
+                audioQueueRef.current = [];
+                if (currentSourceRef.current) {
+                  currentSourceRef.current.stop();
+                  currentSourceRef.current = null;
+                }
+                isPlayingRef.current = false;
+                updateStatus('listening');
+              }
+
+              // Handle Tool Calls
+              if (message.toolCall) {
+                const session = await sessionPromise;
+                const functionResponses = [];
+
+                for (const call of message.toolCall.functionCalls) {
+                  console.log("Executing tool:", call.name, call.args);
+                  if (call.name === 'update_reservation') {
+                    onBookingUpdate(call.args as Partial<BookingDetails>);
+                    setDebug(prev => ({ ...prev, lastToolCall: `update: ${JSON.stringify(call.args)}` }));
+                    functionResponses.push({
+                      name: call.name,
+                      response: { output: { success: true } },
+                      id: call.id
+                    });
+                  } else if (call.name === 'submit_reservation') {
+                    onBookingSubmit();
+                    setDebug(prev => ({ ...prev, lastToolCall: 'submit' }));
+                    functionResponses.push({
+                      name: call.name,
+                      response: { output: { success: true } },
+                      id: call.id
+                    });
+                  }
+                }
+
+                if (functionResponses.length > 0) {
+                  session.sendToolResponse({ functionResponses });
+                }
               }
             } catch (msgErr) {
               console.error("Error processing message:", msgErr);
             }
           },
-          onclose: () => {
-            console.log("Gemini Live connection closed");
-            setDebug(prev => ({ ...prev, wsStatus: 'closed' }));
-            updateStatus('offline');
+          onclose: (event: any) => {
+            console.log("Gemini Live connection closed:", event.code, event.reason);
+            setDebug(prev => ({ 
+              ...prev, 
+              wsStatus: 'closed',
+              lastError: event.code && event.code !== 1000 ? `Connection closed: ${event.reason || event.code}` : undefined
+            }));
+            disconnect();
           },
-          onerror: (err) => {
-            console.error("Live API Error:", err);
-            setDebug(prev => ({ ...prev, wsStatus: 'error', lastError: String(err) }));
+          onerror: (error: any) => {
+            console.error("Gemini Live connection error:", error);
+            setDebug(prev => ({ 
+              ...prev, 
+              wsStatus: 'error', 
+              lastError: error instanceof Error ? error.message : "WebSocket error" 
+            }));
             updateStatus('error');
+            disconnect();
           }
         }
       });
 
       sessionRef.current = await sessionPromise;
-
+      console.log("Gemini Live session established");
     } catch (err: any) {
       console.error("Connection Error:", err);
       updateStatus('error');
@@ -352,15 +392,39 @@ export function useGeminiLive(
       }
       
       setDebug(prev => ({ ...prev, lastError: errorMessage }));
+      disconnect();
     }
   };
 
-  const disconnect = () => {
-    sessionRef.current?.close();
-    processorRef.current?.disconnect();
-    streamRef.current?.getTracks().forEach(track => track.stop());
+  const disconnect = useCallback(() => {
     updateStatus('offline');
-  };
+    
+    if (processorRef.current) {
+      processorRef.current.onaudioprocess = null;
+      processorRef.current.disconnect();
+      processorRef.current = null;
+    }
+
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(track => track.stop());
+      streamRef.current = null;
+    }
+
+    if (currentSourceRef.current) {
+      currentSourceRef.current.stop();
+      currentSourceRef.current = null;
+    }
+
+    if (sessionRef.current) {
+      try {
+        sessionRef.current.close();
+      } catch (e) {}
+      sessionRef.current = null;
+    }
+
+    audioQueueRef.current = [];
+    isPlayingRef.current = false;
+  }, []);
 
   return { status, transcript, debug, connect, disconnect };
 }
